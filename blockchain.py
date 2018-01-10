@@ -4,7 +4,7 @@ import json
 from time import time
 from uuid import uuid4
 from textwrap import dedent
-from flask import Flask
+from flask import Flask, jsonify, request
 
 
 class Blockchain(object):
@@ -37,7 +37,7 @@ class Blockchain(object):
         self.chain.append(block)
         return block
 
-    def new_transactions(self, sender, recipient, amount):
+    def new_transaction(self, sender, recipient, amount):
         """
         Creates a new transaction to go into the next mined Block
 
@@ -47,7 +47,7 @@ class Blockchain(object):
         :return: <int> The index of the Block that will hold this transaction
         """
 
-        self.current_transaction.append({
+        self.current_transactions.append({
             'sender': sender,
             'recipient': recipient,
             'amount': amount,
@@ -65,13 +65,13 @@ class Blockchain(object):
         """
 
         # We must make sure that the Dictionary is Ordered, or we'll have inconsistent hashes
-        block_string = json.dump(block, sort_keys=True).encode()
+        block_string = json.dumps(block, sort_keys=True).encode()
         return hashlib.sha256(block_string).hexdigest()
 
     @property
     def last_block(self):
         # Returns the last Block in the chain
-        pass
+        return self.chain[-1]
 
     def proof_of_work(self, last_proof):
         """
@@ -115,7 +115,32 @@ blockchain = Blockchain()
 
 @app.route('/mine', methods=['GET'])
 def mine():
-    return "We'll mine a new Block"
+    # We run the proof of work algorithm to get the next proof...
+    last_block = blockchain.last_block
+    last_proof = last_block['proof']
+    proof = blockchain.proof_of_work(last_proof)
+
+    # We must receive a reward for finding the proof.
+    # The sender is "0" to signify that this node has mined a new coin.
+    blockchain.new_transaction(
+            sender="0",
+            recipient=node_identifier,
+            amount=1,
+            )
+
+    # Forge the block by adding it to the chain
+    previous_hash = blockchain.hash(last_block)
+    block = blockchain.new_block(proof, previous_hash)
+
+    response = {
+            'message': "New Block Forged",
+            'index': block['index'],
+            'transactions': block['transactions'],
+            'proof': block['proof'],
+            'previous_hash': block['previous_hash'],
+            }
+
+    return jsonify(response), 200
 
 @app.route('/transactions/new', methods=['POST'])
 def new_transactions():
@@ -123,6 +148,8 @@ def new_transactions():
 
     # Check that the required fields are in the POST'ed data
     required = ['sender', 'recipient', 'amount']
+    print(required)
+    print(values)
     if not all(k in values for k in required):
         return 'Missing values', 400
 
